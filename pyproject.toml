@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "apple-watch-hr-extractor"
+version = "0.1.0"
+description = "Apple Watch kalp atım ekran görüntülerinden OpenCV + OCR ile ayrıntılı veri çıkarımı"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Buğrahan" }]
+dependencies = [
+  "opencv-python-headless>=4.8",
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "pytesseract>=0.3.10",
+  "openpyxl>=3.1",
+]
+
+[project.optional-dependencies]
+app = ["streamlit>=1.50", "plotly>=5.18"]
+api = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "python-multipart>=0.0.9"]
+dev = ["pytest>=8", "httpx>=0.27"]
+
+[project.scripts]
+hr-extract = "hr_extractor.cli:main"
+
+[tool.setuptools]
+packages = ["hr_extractor"]
