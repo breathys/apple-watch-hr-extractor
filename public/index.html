@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nabız Veri Çıkarıcı</title>
+<meta name="description" content="Apple Watch antrenman kalp atış hızı ekran görüntüsünden dakika dakika nabız verisi, bölge süreleri ve toparlanma nabzını çıkarın.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2310303A'/><path d='M4 18h6l3-8 4 14 3-9 2 3h6' fill='none' stroke='%23E0313E' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root {
+  --tile: #E8F1F2;
+  --surface: #FFFFFF;
+  --ink: #10303A;
+  --ink-soft: #4A6670;
+  --line: #C9DCDF;
+  --rope-red: #E0313E;
+  --rope-blue: #1E5FA8;
+  --z1: #3B82F6; --z2: #14B8A6; --z3: #84CC16; --z4: #F97316; --z5: #EC4899;
+  --radius-lg: 18px;
+  --radius-sm: 8px;
+  --display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --body: "Barlow", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--tile);
+  /* havuz fayansı ızgarası */
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 28px 28px;
+  background-position: -1px -1px;
+  color: var(--ink);
+  font: 400 17px/1.55 var(--body);
+}
+main { max-width: 1040px; margin: 0 auto; padding: 40px 20px 80px; }
+header.top { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 28px; }
+h1 { font: 700 clamp(40px, 7vw, 68px)/0.95 var(--display); letter-spacing: -0.01em; margin: 0; }
+.lede { max-width: 56ch; color: var(--ink-soft); margin: 10px 0 0; }
+.api-link { font: 600 16px var(--display); color: var(--rope-blue); text-decoration: none; letter-spacing: .02em; }
+.api-link:hover { text-decoration: underline; }
+
+/* Kulvar halatı: kırmızı-beyaz-mavi şamandıra dizisi — sayfanın tek gösterişli öğesi */
+.drop {
+  display: block;
+  position: relative;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  padding: 44px 28px 40px;
+  text-align: center;
+  cursor: pointer;
+  outline: none;
+}
+.drop::before, .drop::after {
+  content: ""; position: absolute; left: 18px; right: 18px; height: 10px; border-radius: 5px;
+  background: repeating-linear-gradient(90deg,
+    var(--rope-red) 0 22px, #fff 22px 26px, var(--rope-red) 26px 48px, #fff 48px 52px,
+    var(--rope-blue) 52px 74px, #fff 74px 78px);
+  box-shadow: inset 0 0 0 1px rgba(16,48,58,.08);
+}
+.drop::before { top: 14px; }
+.drop::after { bottom: 14px; }
+.drop:focus-visible { box-shadow: 0 0 0 3px var(--rope-blue); }
+.drop.over { background: #F3FAFB; }
+.drop.over::before, .drop.over::after { animation: rope 1.2s linear infinite; }
+@keyframes rope { to { background-position: 78px 0; } }
+.drop h2 { font: 700 34px/1.1 var(--display); margin: 10px 0 6px; }
+.drop p { margin: 0; color: var(--ink-soft); }
+.drop .btn { margin-top: 18px; }
+input[type=file] { display: none; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  font: 600 18px var(--display); letter-spacing: .02em;
+  border: 2px solid var(--ink); color: var(--ink); background: transparent;
+  padding: 8px 18px; border-radius: 999px; cursor: pointer; text-decoration: none;
+}
+.btn.solid { background: var(--ink); color: #fff; }
+.btn:hover { background: var(--ink); color: #fff; }
+.btn:focus-visible { outline: 3px solid var(--rope-blue); outline-offset: 2px; }
+
+.result { background: var(--surface); border-radius: var(--radius-lg); padding: 28px; margin-top: 28px; }
+.result-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.result-head h3 { font: 600 26px var(--display); margin: 0; word-break: break-all; }
+.result-head .when { color: var(--ink-soft); font-size: 15px; }
+.status { margin-top: 14px; color: var(--ink-soft); }
+.error { margin-top: 14px; padding: 12px 16px; border-left: 4px solid var(--rope-red); background: #FDF0F1; border-radius: var(--radius-sm); }
+.warn { margin-top: 10px; padding: 10px 14px; border-left: 4px solid var(--z4); background: #FFF6EE; border-radius: var(--radius-sm); font-size: 15px; }
+
+/* Skor tabelası: havuz kenarındaki tempo saati gibi büyük dar rakamlar */
+.board { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); margin: 22px 0 8px; border-top: 2px solid var(--ink); }
+.board div { padding: 12px 14px 4px 0; border-bottom: 1px solid var(--line); }
+.board b { display: block; font: 700 46px/1 var(--display); font-variant-numeric: tabular-nums; }
+.board b small { font-size: 20px; font-weight: 600; margin-left: 3px; color: var(--ink-soft); }
+.board span { font-size: 14px; color: var(--ink-soft); }
+.board .hot b { color: var(--rope-red); }
+
+.chart-wrap { position: relative; height: 320px; margin-top: 20px; }
+
+h4 { font: 600 22px var(--display); margin: 28px 0 10px; }
+.zones { display: grid; gap: 8px; }
+.zrow { display: grid; grid-template-columns: 40px 1fr 92px 92px; align-items: center; gap: 12px; font-size: 15px; }
+.zrow .zn { font: 700 20px var(--display); }
+.zbar { position: relative; height: 14px; background: #EEF4F5; border-radius: 7px; overflow: hidden; }
+.zbar i { position: absolute; inset: 0 auto 0 0; border-radius: 7px; }
+.zbar em { position: absolute; top: 3px; height: 8px; border-radius: 4px; background: var(--ink); opacity: .35; }
+.zrow .num { text-align: right; font-variant-numeric: tabular-nums; }
+.zrow.headrow { color: var(--ink-soft); font-size: 13px; }
+.zlegend { font-size: 13px; color: var(--ink-soft); margin-top: 8px; }
+
+.tabs { display: flex; gap: 4px; margin-top: 28px; border-bottom: 2px solid var(--ink); flex-wrap: wrap; }
+.tabs button {
+  font: 600 18px var(--display); background: none; border: 0; padding: 8px 14px; cursor: pointer; color: var(--ink-soft);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+.tabs button[aria-selected=true] { background: var(--ink); color: #fff; }
+.tabs button:focus-visible { outline: 3px solid var(--rope-blue); }
+.panel { max-height: 380px; overflow: auto; border: 1px solid var(--line); border-top: 0; border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
+table { border-collapse: collapse; width: 100%; font-size: 15px; font-variant-numeric: tabular-nums; }
+th, td { padding: 7px 12px; text-align: right; border-bottom: 1px solid #EDF3F4; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+thead th { position: sticky; top: 0; background: #F5FAFA; font-weight: 600; }
+.panel img { display: block; max-width: 100%; margin: 0 auto; }
+.panel .empty { padding: 18px; color: var(--ink-soft); }
+
+.downloads { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 22px; }
+footer { margin-top: 48px; font-size: 14px; color: var(--ink-soft); }
+footer a { color: inherit; }
+
+@media (max-width: 600px) {
+  main { padding: 24px 16px 60px; }
+  .result { padding: 20px 16px; }
+  .board b { font-size: 38px; }
+  .zrow { grid-template-columns: 30px 1fr 64px 64px; gap: 8px; font-size: 14px; }
+  .chart-wrap { height: 260px; }
+  .zrow.headrow span:nth-child(2) { visibility: hidden; }
+}
+@media (prefers-reduced-motion: reduce) { .drop.over::before, .drop.over::after { animation: none; } }
+</style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <div>
+      <h1>Nabız Veri Çıkarıcı</h1>
+      <p class="lede">Apple Watch antrenmanının Kalp Atış Hızı ekranını yükleyin. Grafikteki her ölçüm, bölge süreleri ve toparlanma nabzı tabloya dönüşür.</p>
+    </div>
+    <a class="api-link" href="/api/docs">API belgeleri</a>
+  </header>
+
+  <label class="drop" id="drop" tabindex="0" for="file">
+    <h2>Ekran görüntüsünü buraya bırakın</h2>
+    <p>Fitness uygulaması → antrenman → Kalp Atış Hızı. PNG veya JPG, birden fazla dosya olabilir.</p>
+    <span class="btn solid">Dosya seç</span>
+    <input type="file" id="file" accept="image/png,image/jpeg" multiple>
+  </label>
+
+  <div id="results"></div>
+
+  <footer>
+    Görüntüler yalnızca işlenmek için sunucuya gönderilir, saklanmaz.
+    Kaynak kod: <a href="https://github.com/breathys/apple-watch-hr-extractor">GitHub</a>
+  </footer>
+</main>
+
+<script>
+const ZC = ["#3B82F6", "#14B8A6", "#84CC16", "#F97316", "#EC4899"];
+const MAX_UPLOAD = 4_000_000;
+const drop = document.getElementById("drop");
+const input = document.getElementById("file");
+const results = document.getElementById("results");
+
+input.addEventListener("change", () => handle([...input.files]));
+drop.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } });
+["dragenter", "dragover"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => handle([...e.dataTransfer.files].filter(f => f.type.startsWith("image/"))));
+document.addEventListener("paste", e => {
+  const files = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith("image/"));
+  if (files.length) handle(files);
+});
+
+function el(tag, attrs = {}, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") n.className = v; else if (k === "html") n.innerHTML = v; else n.setAttribute(k, v);
+  }
+  for (const k of kids) if (k != null) n.append(k);
+  return n;
+}
+const fmt = (v, d = 0) => v == null || Number.isNaN(v) ? "–" : Number(v).toFixed(d);
+
+// Büyük görüntüleri tarayıcıda küçült (araç zaten 736 px genişliğe ölçekler; Vercel sınırı ~4.5 MB)
+async function prepare(file) {
+  if (file.size <= MAX_UPLOAD) return file;
+  const bmp = await createImageBitmap(file);
+  const scale = Math.min(1, 1179 / bmp.width);
+  const c = Object.assign(document.createElement("canvas"), { width: Math.round(bmp.width * scale), height: Math.round(bmp.height * scale) });
+  c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+  let blob = await new Promise(r => c.toBlob(r, "image/png"));
+  if (blob.size > MAX_UPLOAD) blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.95));
+  return new File([blob], file.name.replace(/\.\w+$/, blob.type === "image/png" ? ".png" : ".jpg"), { type: blob.type });
+}
+
+async function handle(files) {
+  for (const f of files) await processOne(f);
+  input.value = "";
+}
+
+async function processOne(file) {
+  const card = el("section", { class: "result" },
+    el("div", { class: "result-head" }, el("h3", {}, file.name)),
+    el("p", { class: "status" }, "Görüntü işleniyor…"));
+  results.prepend(card);
+  card.scrollIntoView({ behavior: "smooth", block: "start" });
+  let upload, data;
+  try {
+    upload = await prepare(file);
+    const fd = new FormData(); fd.append("file", upload);
+    const res = await fetch("/api/extract?debug=true", { method: "POST", body: fd });
+    data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `Sunucu ${res.status} döndürdü. Biraz sonra tekrar deneyin.`);
+  } catch (err) {
+    card.querySelector(".status").replaceWith(el("p", { class: "error" }, err.message || String(err)));
+    return;
+  }
+  render(card, data, upload);
+}
+
+function render(card, d, upload) {
+  card.querySelector(".status").remove();
+  const s = d.summary || {};
+  if (s.start) card.querySelector(".result-head").append(el("span", { class: "when" }, `${s.start.slice(0, 5)} – ${s.end.slice(0, 5)}`));
+  for (const w of d.warnings || []) card.append(el("p", { class: "warn" }, w));
+  if (!d.samples?.length) card.append(el("p", { class: "error" }, "Bu görüntüde nabız grafiği bulunamadı. Fitness uygulamasındaki Kalp Atış Hızı ayrıntı ekranının tamamını yükleyin."));
+
+  const stat = (val, unit, label, hot) => el("div", hot ? { class: "hot" } : {},
+    el("b", { html: `${val}${unit ? `<small>${unit}</small>` : ""}` }), el("span", {}, label));
+  card.append(el("div", { class: "board" },
+    stat(fmt(s.apple_avg_hr), "bpm", "Ortalama (Apple)", true),
+    stat(fmt(s.hr_avg_est, 0), "bpm", "Ortalama (grafikten)"),
+    stat(fmt(s.hr_max_est), "bpm", "En yüksek"),
+    stat(fmt(s.hr_min_est), "bpm", "En düşük"),
+    stat(fmt(s.duration_min, 0), "dk", "Grafik süresi"),
+    stat(fmt(s.bars_detected), "", "Ölçüm"),
+  ));
+
+  if (d.samples?.length) {
+    const wrap = el("div", { class: "chart-wrap" }, el("canvas", { "aria-label": "Zamana göre nabız grafiği", role: "img" }));
+    card.append(wrap);
+    drawChart(wrap.querySelector("canvas"), d);
+  }
+
+  if (d.zones?.length) {
+    card.append(el("h4", {}, "Nabız bölgeleri"));
+    const est = s.zone_est_from_chart_min || {};
+    const max = Math.max(...d.zones.map(z => Math.max(z.seconds / 60, est["Z" + z.zone] || 0)), 1);
+    const box = el("div", { class: "zones" },
+      el("div", { class: "zrow headrow" }, el("span"), el("span", {}, "Apple süresi (renkli) ve grafikten tahmin (koyu)"), el("span", { class: "num" }, "Apple"), el("span", { class: "num" }, "Tahmin")));
+    for (const z of d.zones) {
+      const e = est["Z" + z.zone];
+      const bar = el("div", { class: "zbar" });
+      bar.append(el("i", { style: `width:${(z.seconds / 60 / max) * 100}%;background:${ZC[z.zone - 1]}` }));
+      if (e != null) bar.append(el("em", { style: `left:0;width:${(e / max) * 100}%` }));
+      box.append(el("div", { class: "zrow", title: z.range_text },
+        el("span", { class: "zn", style: `color:${ZC[z.zone - 1]}` }, "Z" + z.zone), bar,
+        el("span", { class: "num" }, z.duration || "–"),
+        el("span", { class: "num" }, e != null ? `${fmt(e, 1)} dk` : "–")));
+    }
+    card.append(box, el("p", { class: "zlegend" }, d.zones.map(z => `Z${z.zone} ${z.range_text.replace("BPM", " bpm")}`).join("  ·  ")));
+  }
+
+  // Sekmeler
+  const panels = {
+    "Ölçümler": () => table(d.samples, ["clock", "hr_min", "hr_max", "hr_mid", "t_sec"], ["Saat", "Min", "Maks", "Orta", "Saniye"]),
+    "Dakikalık": () => table(d.per_minute, ["clock", "hr_min", "hr_max", "hr_avg"], ["Dakika", "Min", "Maks", "Ortalama"]),
+    "Toparlanma": () => d.recovery?.length
+      ? table(d.recovery, ["clock", "hr_min", "hr_max", "hr_mid", "t_sec"], ["Saat", "Min", "Maks", "Orta", "Saniye"])
+      : el("p", { class: "empty" }, "Bu görüntüde toparlanma grafiği yok."),
+    "Kontrol görüntüsü": () => d.annotated_png
+      ? el("img", { src: "data:image/png;base64," + d.annotated_png, alt: "Okunan grafik çerçeveleri ve çubukların işaretlendiği görüntü" })
+      : el("p", { class: "empty" }, "Kontrol görüntüsü oluşturulamadı."),
+  };
+  const tabs = el("div", { class: "tabs", role: "tablist" });
+  const panel = el("div", { class: "panel", role: "tabpanel" });
+  Object.keys(panels).forEach((name, i) => {
+    const b = el("button", { role: "tab", "aria-selected": i === 0 ? "true" : "false" }, name);
+    b.onclick = () => {
+      tabs.querySelectorAll("button").forEach(x => x.setAttribute("aria-selected", "false"));
+      b.setAttribute("aria-selected", "true");
+      panel.replaceChildren(panels[name]());
+    };
+    tabs.append(b);
+  });
+  panel.append(panels["Ölçümler"]());
+  card.append(tabs, panel);
+
+  // İndirmeler
+  const base = (d.file || "nabiz").replace(/\.\w+$/, "");
+  const xlsx = el("button", { class: "btn solid" }, "Excel indir");
+  xlsx.onclick = async () => {
+    xlsx.disabled = true; xlsx.textContent = "Hazırlanıyor…";
+    const fd = new FormData(); fd.append("file", upload);
+    const r = await fetch("/api/extract.xlsx", { method: "POST", body: fd });
+    if (r.ok) save(await r.blob(), base + ".xlsx");
+    xlsx.disabled = false; xlsx.textContent = "Excel indir";
+  };
+  const csvBtn = el("button", { class: "btn" }, "CSV indir");
+  csvBtn.onclick = () => save(new Blob(["﻿" + csv(d.samples)], { type: "text/csv" }), base + "_olcumler.csv");
+  const jsonBtn = el("button", { class: "btn" }, "JSON indir");
+  jsonBtn.onclick = () => { const { annotated_png, ...rest } = d; save(new Blob([JSON.stringify(rest, null, 2)], { type: "application/json" }), base + ".json"); };
+  card.append(el("div", { class: "downloads" }, xlsx, csvBtn, jsonBtn));
+}
+
+function table(rows, keys, heads) {
+  if (!rows?.length) return el("p", { class: "empty" }, "Veri yok.");
+  const t = el("table");
+  t.append(el("thead", {}, el("tr", {}, ...heads.map(h => el("th", {}, h)))));
+  const tb = el("tbody");
+  for (const r of rows) tb.append(el("tr", {}, ...keys.map(k => el("td", {}, typeof r[k] === "number" && !Number.isInteger(r[k]) ? fmt(r[k], 1) : (r[k] ?? "–")))));
+  t.append(tb);
+  return t;
+}
+
+function csv(rows) {
+  if (!rows?.length) return "";
+  const keys = Object.keys(rows[0]).filter(k => !["x_px", "top_px", "bottom_px", "hue"].includes(k));
+  return [keys.join(","), ...rows.map(r => keys.map(k => r[k] ?? "").join(","))].join("\n");
+}
+
+function save(blob, name) {
+  const a = el("a", { href: URL.createObjectURL(blob), download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+function drawChart(canvas, d) {
+  const toMin = c => { const [h, m, s] = c.split(":").map(Number); return h * 60 + m + s / 60; };
+  const pts = d.samples.map(r => ({ x: r.clock ? toMin(r.clock) : r.t_sec / 60, lo: r.hr_min, hi: r.hr_max, mid: r.hr_mid }));
+  const zoneLines = (d.zones || []).filter(z => z.low && z.zone > 1).map(z => ({ y: z.low, c: ZC[z.zone - 1], z: z.zone }));
+  const label = v => { const h = Math.floor(v / 60) % 24, m = Math.floor(v % 60); return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`; };
+  const pitch = pts.length > 1 ? (pts.at(-1).x - pts[0].x) / (pts.length - 1) : 1;
+  new Chart(canvas, {
+    data: {
+      datasets: [
+        // görünmez nokta veri seti: ipucu (tooltip) ve eksen aralığı için; çubuklar aşağıdaki eklentiyle çizilir
+        { type: "scatter", label: "Min–maks", data: pts.map(p => ({ x: p.x, y: p.hi, lo: p.lo })), pointRadius: 0, pointHoverRadius: 0 },
+        { type: "line", label: "Orta", data: pts.map(p => ({ x: p.x, y: p.mid })), borderColor: "#E0313E", borderWidth: 2,
+          pointRadius: 0, tension: .25, spanGaps: pitch * 1.6 },
+      ],
+    },
+    options: {
+      maintainAspectRatio: false, animation: false, parsing: true,
+      interaction: { mode: "nearest", axis: "x", intersect: false },
+      scales: {
+        x: { type: "linear", ticks: { callback: label, color: "#4A6670", maxTicksLimit: 8 }, grid: { color: "#EEF4F5" },
+             min: pts[0].x - pitch / 2, max: pts.at(-1).x + pitch / 2 },
+        y: { title: { display: true, text: "BPM", color: "#4A6670" }, ticks: { color: "#4A6670" }, grid: { color: "#EEF4F5" },
+             min: Math.floor((Math.min(...pts.map(p => p.lo)) - 6) / 10) * 10,
+             max: Math.ceil((Math.max(...pts.map(p => p.hi)) + 6) / 10) * 10 },
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: {
+          title: items => label(items[0].parsed.x),
+          label: it => it.dataset.type === "scatter" ? `Aralık ${fmt(it.raw.lo)}–${fmt(it.raw.y)} BPM` : `Orta ${fmt(it.parsed.y)} BPM`,
+        } },
+      },
+    },
+    plugins: [{
+      id: "ranges",
+      beforeDatasetsDraw(chart) {
+        const { ctx, scales: { x, y } } = chart;
+        const w = Math.max(2, Math.min(8, (x.getPixelForValue(pitch) - x.getPixelForValue(0)) * 0.55));
+        ctx.save(); ctx.strokeStyle = "rgba(20,184,166,.6)"; ctx.lineWidth = w; ctx.lineCap = "round";
+        for (const p of pts) {
+          const px = x.getPixelForValue(p.x), y1 = y.getPixelForValue(p.lo), y2 = y.getPixelForValue(p.hi);
+          ctx.beginPath(); ctx.moveTo(px, y1); ctx.lineTo(px, Math.min(y2, y1 - 0.5)); ctx.stroke();
+        }
+        ctx.restore();
+      },
+    }, {
+      id: "zones",
+      afterDatasetsDraw(chart) {
+        const { ctx, chartArea: a, scales: { y } } = chart;
+        ctx.save(); ctx.setLineDash([4, 4]); ctx.font = "600 12px Barlow, sans-serif";
+        for (const z of zoneLines) {
+          const py = y.getPixelForValue(z.y);
+          if (py < a.top || py > a.bottom) continue;
+          ctx.strokeStyle = z.c; ctx.beginPath(); ctx.moveTo(a.left, py); ctx.lineTo(a.right, py); ctx.stroke();
+          ctx.fillStyle = z.c; ctx.fillText("Z" + z.z, a.left + 6, py - 4);
+        }
+        ctx.restore();
+      },
+    }],
+  });
+}
+</script>
+</body>
+</html>

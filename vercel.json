@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "hr_extractor/web.py": {
+      "maxDuration": 30,
+      "memory": 1024
+    }
+  }
+}

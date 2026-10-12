@@ -481,31 +481,50 @@ def extract_bars(img: np.ndarray, bg: np.ndarray, chart: Chart, unit: float) -> 
 # --------------------------------------------------------------------------- #
 # Özet metinler
 # --------------------------------------------------------------------------- #
+RANGE_RE = re.compile(r"^(<\s*\d{2,3}|\d{2,3}\s*[-–—]\s*\d{2,3}|\d{2,3}\s*\+)\s*BPM$", re.I)
+
+
 def _parse_zones(words: list[Word], unit: float) -> list[Zone]:
-    zones = []
-    labels = [w for w in words if re.match(r"(?i)z[o0]ne\s*\|?\s*([1-5])", w.text)]
-    for lab in labels:
-        n = int(re.match(r"(?i)z[o0]ne\s*\|?\s*([1-5])", lab.text).group(1))
-        row = [w for w in words if abs(w.cy - lab.cy) < 14 * unit and w is not lab]
+    """Bölge satırları: sağda "132-142BPM" gibi aralık + aynı satırda "13:28" süre.
+
+    Bölge numarası "Zone N" yazısından okunur; okunamazsa satır sırasından verilir.
+    """
+    def norm(t: str) -> str:
+        return t.strip(" |").replace("8PM", "BPM").replace(" ", "")
+
+    rows = []
+    for rw in words:
+        if not RANGE_RE.match(norm(rw.text)):
+            continue
+        row = [w for w in words if abs(w.cy - rw.cy) < 14 * unit and w is not rw]
         dur = next((w for w in sorted(row, key=lambda w: w.x) if DUR_RE.fullmatch(w.text.strip(" |"))), None)
-        rng = next((w for w in sorted(row, key=lambda w: -w.x) if "BPM" in w.text.upper().replace("8", "B")), None)
-        secs, dtext = 0, ""
-        if dur:
-            m = DUR_RE.fullmatch(dur.text.strip(" |"))
-            hh, mm, ss = int(m.group(1) or 0), int(m.group(2)), int(m.group(3))
-            secs, dtext = hh * 3600 + mm * 60 + ss, m.group(0)
+        if dur is None:
+            continue
+        lab = next((w for w in row if re.search(r"(?i)z[o0]ne\s*\|?\s*([1-5])", w.text)), None)
+        n = int(re.search(r"(?i)z[o0]ne\s*\|?\s*([1-5])", lab.text).group(1)) if lab else None
+        if n is None:   # "Zone" ve rakam ayrı kutulara düştüyse
+            left = [w for w in row if w.x2 < dur.x and re.fullmatch(r"[1-5]{1,2}", w.text.strip(" |"))]
+            n = int(left[0].text.strip(" |")[0]) if left else None
+        rows.append((rw.cy, n, dur, rw))
+    rows.sort(key=lambda r: r[0])
+    zones = []
+    for i, (_, n, dur, rng) in enumerate(rows):
+        m = DUR_RE.fullmatch(dur.text.strip(" |"))
+        hh, mm, ss = int(m.group(1) or 0), int(m.group(2)), int(m.group(3))
+        rtext = norm(rng.text)
+        nums = [int(v) for v in re.findall(r"\d{2,3}", rtext)]
         lo = hi = None
-        rtext = ""
-        if rng:
-            rtext = rng.text.replace(" ", "")
-            nums = [int(v) for v in re.findall(r"\d{2,3}", rtext)]
-            if rtext.startswith("<") and nums:
-                hi = nums[0]
-            elif "+" in rtext and nums:
-                lo = nums[0]
-            elif len(nums) >= 2:
-                lo, hi = nums[0], nums[1]
-        zones.append(Zone(n, dtext, secs, rtext, lo, hi))
+        if rtext.startswith("<"):
+            hi = nums[0]
+        elif "+" in rtext:
+            lo = nums[0]
+        else:
+            lo, hi = nums[0], nums[1]
+        zones.append(Zone(n if n else i + 1, m.group(0), hh * 3600 + mm * 60 + ss, rtext, lo, hi))
+    # Satır sırası ile çelişen/eksik numaraları sırayla düzelt
+    if len({z.zone for z in zones}) != len(zones):
+        for i, z in enumerate(zones):
+            z.zone = i + 1
     zones.sort(key=lambda z: z.zone)
     # "<131" sonraki bölgenin alt sınırı ile tutarlı hale getir
     for i, z in enumerate(zones):

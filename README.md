@@ -30,31 +30,33 @@ Ekran görüntüsü yükle → tablo, grafik, Excel/CSV/JSON indir.
 
 ## Kurulum
 
-Tesseract gerekli:
-
 ```bash
-# macOS
-brew install tesseract
-# Ubuntu / Debian
-sudo apt install tesseract-ocr
-```
-
-```bash
-git clone https://github.com/<kullanici>/apple-watch-hr-extractor.git
+git clone https://github.com/breathys/apple-watch-hr-extractor.git
 cd apple-watch-hr-extractor
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+**OCR motoru:** Linux'ta `tesserocr` paketi Tesseract'ı kendi içinde getirir, ayrıca kurulum gerekmez
+(dil verisi `hr_extractor/tessdata/` içinde). macOS / Windows'ta sistem Tesseract'ı kullanılır:
+`brew install tesseract` (macOS) veya `choco install tesseract` (Windows).
+
 ## Kullanım
 
-### Web arayüzü
+### Web arayüzü + API (yerel)
 
 ```bash
-streamlit run app.py
+uvicorn hr_extractor.web:app --reload --port 8000
 ```
 
-Tarayıcıda açılan sayfaya bir veya birden çok ekran görüntüsünü sürükleyin. Birden çok dosya
-yüklenirse hepsi tek Excel dosyasında (özet + dosya başına sayfalar) indirilebilir.
+http://localhost:8000 adresini açın ve ekran görüntülerini sürükleyip bırakın. API belgeleri: http://localhost:8000/api/docs
+
+### Alternatif Streamlit arayüzü
+
+```bash
+pip install -r requirements-ui.txt
+streamlit run streamlit_app.py
+```
 
 ### Komut satırı
 
@@ -79,21 +81,37 @@ r.summary()      # özet sözlük
 
 ### REST API
 
+| Uç nokta | Döndürür |
+|---|---|
+| `POST /api/extract` | Tüm tablolar tek JSON'da (`?debug=true` ile kontrol görüntüsü de) |
+| `POST /api/extract.xlsx` | Excel dosyası |
+| `POST /api/extract.csv` | Ölçümler CSV |
+| `GET /api/health` | Durum |
+
 ```bash
-uvicorn api:app --port 8000
-curl -F "file=@ekran.jpg" http://localhost:8000/extract          # JSON
-curl -F "file=@ekran.jpg" http://localhost:8000/extract.xlsx -o nabiz.xlsx
+curl -F "file=@ekran.jpg" https://<alan-adınız>/api/extract
 ```
 
 `HR_API_KEY` ortam değişkeni tanımlanırsa her istekte `X-API-Key` başlığı zorunlu olur.
 
-## Yayına alma (SaaS)
+## Yayına alma
 
-- **Streamlit Community Cloud:** repoyu bağla, ana dosya `app.py`. `packages.txt` Tesseract'ı otomatik kurar.
-- **Docker / kendi sunucun:**
-  ```bash
-  docker compose up -d --build    # arayüz :8501, API :8000
-  ```
+### Vercel (önerilen)
+
+Repo Vercel'e hazır: arayüz `public/index.html` (CDN), API tek bir Python fonksiyonu
+(`hr_extractor.web:app`, `pyproject.toml` içindeki `[tool.vercel]`).
+
+1. vercel.com → **Add New → Project** → bu GitHub reposunu içe aktarın.
+2. Ayarları değiştirmeden **Deploy**.
+
+Sonraki her `git push` otomatik yayınlanır. Vercel istek gövdesi ~4.5 MB ile sınırlı olduğundan arayüz büyük
+görüntüleri yüklemeden önce tarayıcıda küçültür.
+
+### Docker / kendi sunucunuz
+
+```bash
+docker compose up -d --build    # http://localhost:8000
+```
 
 ## Desteklenen ekran
 
@@ -114,7 +132,8 @@ test edilmedi; okunamayan alanlar uyarı olarak gösterilir.
 pytest -q
 ```
 
-`tests/test_synthetic.py` bilinen değerlerle çizilen sentetik bir grafikle uçtan uca doğrulama yapar.
+`tests/test_synthetic.py` bilinen değerlerle çizilen sentetik bir grafikle uçtan uca doğrulama yapar,
+`tests/test_api.py` API'yi test eder.
 Kendi ekran görüntülerini `tests/fixtures/` klasörüne koyarsan gerçek görüntü testi de çalışır
 (bu klasördeki görüntüler `.gitignore` ile repodan hariç tutulur).
 

@@ -1,0 +1,7 @@
+tests/
+streamlit_app.py
+requirements-ui.txt
+Dockerfile
+docker-compose.yml
+.streamlit/
+.github/

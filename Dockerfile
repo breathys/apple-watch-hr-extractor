@@ -1,15 +1,16 @@
 FROM python:3.12-slim
 
+# tesserocr Linux'ta Tesseract'ı kendi içinde getirir; libglib OpenCV için
 RUN apt-get update \
- && apt-get install -y --no-install-recommends tesseract-ocr libglib2.0-0 \
+ && apt-get install -y --no-install-recommends libglib2.0-0 \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements-ui.txt ./
+RUN pip install --no-cache-dir -r requirements-ui.txt
 COPY . .
 
-ENV PORT=8501
-EXPOSE 8501 8000
-# Varsayılan: web arayüzü. API için:  docker run -p 8000:8000 IMAGE uvicorn api:app --host 0.0.0.0 --port 8000
-CMD streamlit run app.py --server.port=${PORT} --server.address=0.0.0.0 --server.headless=true
+EXPOSE 8000 8501
+# Varsayılan: web arayüzü + API (http://localhost:8000)
+# Streamlit arayüzü için: docker run -p 8501:8501 IMAGE streamlit run streamlit_app.py --server.address=0.0.0.0
+CMD ["uvicorn", "hr_extractor.web:app", "--host", "0.0.0.0", "--port", "8000"]

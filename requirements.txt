@@ -1,10 +1,11 @@
+# Çekirdek + API (Vercel bu dosyayı kurar)
 opencv-python-headless>=4.8
 numpy>=1.24
 pandas>=2.0
-pytesseract>=0.3.10
 openpyxl>=3.1
-streamlit>=1.50
-plotly>=5.18
+Pillow>=10
 fastapi>=0.110
-uvicorn[standard]>=0.29
 python-multipart>=0.0.9
+# OCR: Linux'ta tesserocr (Tesseract'ı içinde getirir); macOS/Windows'ta sistem tesseract + pytesseract
+tesserocr>=2.9; sys_platform == "linux"
+pytesseract>=0.3.10; sys_platform != "linux"

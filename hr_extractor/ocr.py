@@ -8,9 +8,57 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import os
+import threading
+from pathlib import Path
+
 import cv2
 import numpy as np
-import pytesseract
+
+# OCR motoru: tesserocr (pip ile gelir, sistem kurulumu gerekmez — Vercel gibi
+# sunucusuz ortamlarda çalışır). Yoksa sistemdeki tesseract + pytesseract kullanılır.
+TESSDATA = str(Path(__file__).parent / "tessdata")
+try:
+    import tesserocr
+    from PIL import Image
+    _BACKEND = "tesserocr"
+except ImportError:  # pragma: no cover
+    import pytesseract
+    _BACKEND = "pytesseract"
+if os.getenv("HR_OCR_BACKEND") == "pytesseract":
+    import pytesseract  # noqa: F811
+    _BACKEND = "pytesseract"
+
+_local = threading.local()
+
+
+def _api():
+    api = getattr(_local, "api", None)
+    if api is None:
+        api = tesserocr.PyTessBaseAPI(path=TESSDATA + "/", lang="eng",
+                                      psm=tesserocr.PSM.SINGLE_LINE)
+        _local.api = api
+    return api
+
+
+def _recognize(img: np.ndarray, whitelist: str | None, psm: int) -> tuple[str, float]:
+    if _BACKEND == "tesserocr":
+        api = _api()
+        api.SetPageSegMode(psm)
+        api.SetVariable("tessedit_char_whitelist", whitelist or "")
+        api.SetImage(Image.fromarray(img))
+        text = " ".join(api.GetUTF8Text().split())
+        return text, (float(api.MeanTextConf()) if text else -1.0)
+    cfg = f"--psm {psm}"
+    if whitelist:
+        cfg += f" -c tessedit_char_whitelist={whitelist}"
+    data = pytesseract.image_to_data(img, config=cfg, output_type=pytesseract.Output.DICT)
+    parts, confs = [], []
+    for t, c in zip(data["text"], data["conf"]):
+        if t.strip():
+            parts.append(t.strip())
+            confs.append(float(c))
+    return " ".join(parts), (float(np.mean(confs)) if confs else -1.0)
 
 
 @dataclass
@@ -63,24 +111,19 @@ def contrast_image(img: np.ndarray, bg: np.ndarray) -> np.ndarray:
 
 def _ocr_crop(contrast: np.ndarray, x: int, y: int, w: int, h: int,
               whitelist: str | None = None, psm: int = 7) -> tuple[str, float]:
-    pad = max(4, h // 2)
     H, W = contrast.shape
-    x0, y0 = max(0, x - pad), max(0, y - pad)
-    x1, y1 = min(W, x + w + pad), min(H, y + h + pad)
-    crop = 255 - contrast[y0:y1, x0:x1]  # koyu yazı, açık zemin
-    scale = max(1.0, 56.0 / max(h, 1))
-    crop = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
-    crop = cv2.copyMakeBorder(crop, 12, 12, 12, 12, cv2.BORDER_CONSTANT, value=255)
-    cfg = f"--psm {psm}"
-    if whitelist:
-        cfg += f" -c tessedit_char_whitelist={whitelist}"
-    data = pytesseract.image_to_data(crop, config=cfg, output_type=pytesseract.Output.DICT)
-    parts, confs = [], []
-    for t, c in zip(data["text"], data["conf"]):
-        if t.strip():
-            parts.append(t.strip())
-            confs.append(float(c))
-    return " ".join(parts), (float(np.mean(confs)) if confs else -1.0)
+    # Birkaç dolgu/ölçek kombinasyonu dene; ilk dolu sonuç kullanılır
+    for pad, target in ((max(4, h // 2), 56.0), (4, 40.0), (6, 72.0)):
+        x0, y0 = max(0, x - pad), max(0, y - pad)
+        x1, y1 = min(W, x + w + pad), min(H, y + h + pad)
+        crop = 255 - contrast[y0:y1, x0:x1]  # koyu yazı, açık zemin
+        scale = max(1.0, target / max(h, 1))
+        crop = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        crop = cv2.copyMakeBorder(crop, 12, 12, 12, 12, cv2.BORDER_CONSTANT, value=255)
+        text, conf = _recognize(crop, whitelist, psm)
+        if text:
+            return text, conf
+    return "", -1.0
 
 
 def find_words(mask: np.ndarray, unit: float = 1.0, min_h: int = 8,
